@@ -1,0 +1,728 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI 비전 스튜디오</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- TensorFlow.js core (v3.21.0) -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.21.0/dist/tf.min.js"></script>
+  <!-- MobileNet (사물 분류) -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.0/dist/mobilenet.min.js"></script>
+  <!-- COCO-SSD (다중 객체 탐지) -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.2/dist/coco-ssd.min.js"></script>
+
+  <!-- MediaPipe Selfie Segmentation (고속 안정 인물 분할) -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation/selfie_segmentation.js" crossorigin="anonymous"></script>
+  <!-- MediaPipe FaceMesh (468 랜드마크 얼굴 특징점) -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <style>
+    /* 점박이 도트 배경 그리드 */
+    body {
+      background-color: #f8fafc;
+      background-image: radial-gradient(#cbd5e1 1.2px, transparent 1.2px);
+      background-size: 24px 24px;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+
+    /* 거울 모드 좌우 반전 */
+    .mirror-flip {
+      transform: scaleX(-1);
+    }
+
+    /* 스위치 토글 디자인 */
+    .toggle-checkbox:checked {
+      right: 0;
+      border-color: #4f46e5;
+    }
+    .toggle-checkbox:checked + .toggle-label {
+      background-color: #4f46e5;
+    }
+
+    /* 스크롤바 미세 스타일 */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 9999px;
+    }
+  </style>
+</head>
+<body class="text-slate-800 min-h-screen py-10 px-4 sm:px-6 lg:px-8 flex flex-col justify-between">
+
+  <div class="max-w-6xl mx-auto w-full">
+    <!-- 헤더 섹션 (상단 노란색 알림 배너는 삭제됨) -->
+    <header class="text-center mb-8">
+      <h1 class="text-3xl sm:text-4xl font-extrabold text-slate-900 tracking-tight">AI 비전 스튜디오</h1>
+      <p class="mt-2 text-slate-500 text-sm sm:text-base">
+        웹캠을 켜고 브라우저 안에서 실시간으로 작동하는 AI 모델을 직접 체험해 보세요.
+      </p>
+    </header>
+
+    <!-- 메인 대시보드 그리드 (좌측 컨트롤 패널, 우측 비디오 및 결과 패널) -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+      
+      <aside class="lg:col-span-4 flex flex-col gap-5">
+        <!-- 1. 카메라 설정 카드 -->
+        <div class="bg-white rounded-2xl border border-slate-200/90 shadow-sm p-5 transition-all">
+          <div class="flex items-center justify-between mb-4">
+            <div class="flex items-center gap-2 text-slate-700 font-semibold text-sm">
+              <i data-lucide="video" class="w-4 h-4 text-indigo-600"></i>
+              <span>카메라 설정</span>
+            </div>
+            <!-- 거울 모드 스위치 -->
+            <label class="flex items-center gap-2 cursor-pointer select-none">
+              <span class="text-xs font-medium text-slate-500">거울 모드</span>
+              <div class="relative inline-block w-10 align-middle select-none transition duration-200 ease-in">
+                <input type="checkbox" id="mirrorToggle" checked class="toggle-checkbox absolute block w-5 h-5 rounded-full bg-white border-2 border-slate-300 appearance-none cursor-pointer right-5 transition-all duration-200 ease-in-out"/>
+                <label for="mirrorToggle" class="toggle-label block overflow-hidden h-5 rounded-full bg-slate-300 cursor-pointer transition-colors"></label>
+              </div>
+            </label>
+          </div>
+
+          <!-- 카메라 디바이스 셀렉트 드롭다운 -->
+          <div class="relative">
+            <select id="cameraSelect" class="w-full bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700 text-sm rounded-xl px-3.5 py-2.5 pr-8 appearance-none focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors">
+              <option value="">카메라 탐색 중...</option>
+            </select>
+            <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-slate-400">
+              <i data-lucide="chevron-down" class="w-4 h-4"></i>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2. AI 모델 선택 카드 (2x2 그리드) -->
+        <div class="bg-white rounded-2xl border border-slate-200/90 shadow-sm p-5">
+          <div class="flex items-center gap-2 text-slate-700 font-semibold text-sm mb-4">
+            <i data-lucide="sliders-horizontal" class="w-4 h-4 text-indigo-600"></i>
+            <span>AI 모델 선택</span>
+          </div>
+
+          <div class="grid grid-cols-2 gap-3" id="modelSelector">
+            <!-- 모델 1: 이미지 분류 -->
+            <button type="button" data-model="classifier" class="model-btn active text-left p-3.5 rounded-xl border-2 border-indigo-600 bg-indigo-50/50 hover:bg-indigo-50 transition-all flex flex-col justify-between">
+              <div>
+                <div class="font-bold text-sm text-indigo-950">이미지 분류</div>
+                <div class="text-xs text-indigo-600/90 mt-0.5">사물 인식</div>
+              </div>
+            </button>
+
+            <!-- 모델 2: 객체 탐지 -->
+            <button type="button" data-model="detector" class="model-btn text-left p-3.5 rounded-xl border border-slate-200 hover:border-slate-300 hover:bg-slate-50 transition-all flex flex-col justify-between">
+              <div>
+                <div class="font-bold text-sm text-slate-800">객체 탐지</div>
+                <div class="text-xs text-slate-500 mt-0.5">여러 사물 찾기</div>
+              </div>
+            </button>
+
+            <!-- 모델 3: 이미지 분할 -->
+            <button type="button" data-model="segmenter" class="model-btn text-left p-3.5 rounded-xl border border-slate-200 hover:border-slate-300 hover:bg-slate-50 transition-all flex flex-col justify-between">
+              <div>
+                <div class="font-bold text-sm text-slate-800">이미지 분할</div>
+                <div class="text-xs text-slate-500 mt-0.5">인물 배경 분리</div>
+              </div>
+            </button>
+
+            <!-- 모델 4: 얼굴 특징점 -->
+            <button type="button" data-model="facemesh" class="model-btn text-left p-3.5 rounded-xl border border-slate-200 hover:border-slate-300 hover:bg-slate-50 transition-all flex flex-col justify-between">
+              <div>
+                <div class="font-bold text-sm text-slate-800">얼굴 특징점</div>
+                <div class="text-xs text-slate-500 mt-0.5">FaceMesh 468점</div>
+              </div>
+            </button>
+          </div>
+        </div>
+
+        <!-- 3. 웹캠 및 AI 실행 토글 버튼 -->
+        <button id="toggleCameraBtn" class="w-full bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-medium py-3.5 px-6 rounded-2xl shadow-sm hover:shadow transition-all flex items-center justify-center gap-2.5">
+          <i data-lucide="camera" class="w-5 h-5"></i>
+          <span id="btnText">웹캠 켜기 및 AI 시작</span>
+        </button>
+      </aside>
+
+      <section class="lg:col-span-8 flex flex-col gap-5">
+        
+        <!-- 비디오/캔버스 뷰포트 영역 -->
+        <div class="relative w-full aspect-video bg-[#0c101d] rounded-3xl overflow-hidden shadow-md flex items-center justify-center border border-slate-800">
+          
+          <!-- 실시간 상태 뱃지 (좌측 상단) -->
+          <div class="absolute top-4 left-4 z-20 flex items-center gap-2 bg-slate-900/80 backdrop-blur-md px-3 py-1.5 rounded-full border border-slate-700/60 text-xs font-medium text-slate-300">
+            <span id="statusIndicatorDot" class="w-2 h-2 rounded-full bg-slate-400"></span>
+            <span id="statusIndicatorText">대기 중</span>
+          </div>
+
+          <!-- AI 모델 로딩 인디케이터 오버레이 -->
+          <div id="loadingOverlay" class="absolute inset-0 z-30 bg-slate-950/75 backdrop-blur-sm flex flex-col items-center justify-center gap-3 hidden">
+            <div class="w-10 h-10 border-4 border-indigo-400 border-t-transparent rounded-full animate-spin"></div>
+            <p id="loadingMsg" class="text-white text-sm font-medium">AI 모델을 초기화하는 중...</p>
+          </div>
+
+          <!-- 비디오 요소 (백그라운드 스트림 수신) -->
+          <video id="webcam" playsinline autoplay muted class="absolute inset-0 w-full h-full object-cover mirror-flip hidden"></video>
+
+          <!-- 캔버스 (실시간 AI 결과 및 비디오 프레임 렌더) -->
+          <canvas id="outputCanvas" class="w-full h-full object-cover mirror-flip hidden"></canvas>
+
+          <!-- 카메라 OFF 대기 화면 -->
+          <div id="placeholderView" class="flex flex-col items-center justify-center text-center p-6 select-none z-10">
+            <div class="w-16 h-16 rounded-2xl bg-slate-800/80 border border-slate-700/50 flex items-center justify-center text-slate-400 mb-4">
+              <i data-lucide="video-off" class="w-8 h-8"></i>
+            </div>
+            <h3 class="text-white font-semibold text-base mb-1">카메라가 꺼져있습니다</h3>
+            <p class="text-slate-400 text-xs sm:text-sm">[웹캠 켜기 및 AI 시작] 버튼을 눌러 실습을 시작하세요.</p>
+          </div>
+        </div>
+
+        <!-- 실시간 AI 감지 결과 패널 -->
+        <div class="bg-white rounded-2xl border border-slate-200/90 shadow-sm p-5">
+          <div class="flex items-center justify-between pb-3 mb-3 border-b border-slate-100">
+            <div class="flex items-center gap-2 text-slate-800 font-semibold text-sm">
+              <i data-lucide="sparkles" class="w-4 h-4 text-indigo-500"></i>
+              <span>실시간 AI 감지 결과</span>
+            </div>
+            <!-- 현재 선택된 모델명 뱃지 -->
+            <span id="currentModelBadge" class="bg-indigo-50 text-indigo-700 border border-indigo-100/80 text-xs px-2.5 py-1 rounded-lg font-medium">
+              이미지 분류 (MobileNet)
+            </span>
+          </div>
+
+          <!-- 동적 추론 결과 출력 영역 -->
+          <div id="resultsContainer" class="text-slate-400 text-sm min-h-[70px] flex items-center">
+            카메라가 중지되었습니다.
+          </div>
+        </div>
+
+      </section>
+
+    </div>
+  </div>
+
+  <script>
+    // State variables
+    let isWebcamRunning = false;
+    let currentModelType = 'classifier'; // 'classifier' | 'detector' | 'segmenter' | 'facemesh'
+    let isMirror = true;
+    let animationFrameId = null;
+
+    // AI Model References
+    const models = {
+      classifier: null,
+      detector: null,
+      segmenter: null,
+      facemesh: null
+    };
+
+    // MediaPipe processing states
+    let isSegmenterProcessing = false;
+    let latestSegmentationMask = null;
+
+    let isFaceMeshProcessing = false;
+    let latestFaceLandmarks = null;
+
+    // DOM Elements
+    const webcam = document.getElementById('webcam');
+    const outputCanvas = document.getElementById('outputCanvas');
+    const ctx = outputCanvas.getContext('2d');
+    const placeholderView = document.getElementById('placeholderView');
+    const toggleCameraBtn = document.getElementById('toggleCameraBtn');
+    const btnText = document.getElementById('btnText');
+    const cameraSelect = document.getElementById('cameraSelect');
+    const mirrorToggle = document.getElementById('mirrorToggle');
+    const statusIndicatorDot = document.getElementById('statusIndicatorDot');
+    const statusIndicatorText = document.getElementById('statusIndicatorText');
+    const currentModelBadge = document.getElementById('currentModelBadge');
+    const resultsContainer = document.getElementById('resultsContainer');
+    const loadingOverlay = document.getElementById('loadingOverlay');
+    const loadingMsg = document.getElementById('loadingMsg');
+    const modelBtns = document.querySelectorAll('.model-btn');
+
+    const MODEL_NAMES = {
+      classifier: '이미지 분류 (MobileNet)',
+      detector: '객체 탐지 (COCO-SSD)',
+      segmenter: '이미지 분할 (인물 배경 분리)',
+      facemesh: '얼굴 특징점 (FaceMesh 468점)'
+    };
+
+    async function loadModel(type) {
+      if (models[type]) return models[type];
+
+      showLoading(true, `${MODEL_NAMES[type]} 모델을 준비하는 중...`);
+      try {
+        if (type === 'classifier') {
+          models.classifier = await mobilenet.load({ version: 2, alpha: 1.0 });
+        } else if (type === 'detector') {
+          models.detector = await cocoSsd.load();
+        } else if (type === 'segmenter') {
+          // MediaPipe Selfie Segmentation 로드 (초고속 인물 배경 분리)
+          if (typeof SelfieSegmentation === 'undefined') {
+            throw new Error('SelfieSegmentation 라이브러리를 불러오지 못했습니다.');
+          }
+          const segmenter = new SelfieSegmentation({
+            locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation/${file}`
+          });
+          segmenter.setOptions({
+            modelSelection: 1 // 1: Landscape (웹캠에 가장 적합)
+          });
+          segmenter.onResults((results) => {
+            if (results && results.segmentationMask) {
+              latestSegmentationMask = results.segmentationMask;
+            }
+          });
+          await segmenter.initialize();
+          models.segmenter = segmenter;
+        } else if (type === 'facemesh') {
+          // MediaPipe FaceMesh 로드
+          if (typeof FaceMesh === 'undefined') {
+            throw new Error('MediaPipe FaceMesh 라이브러리를 불러오지 못했습니다.');
+          }
+          const faceMesh = new FaceMesh({
+            locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
+          });
+          faceMesh.setOptions({
+            maxNumFaces: 2,
+            refineLandmarks: true,
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
+          });
+          faceMesh.onResults((results) => {
+            if (results && results.multiFaceLandmarks) {
+              latestFaceLandmarks = results.multiFaceLandmarks;
+            } else {
+              latestFaceLandmarks = null;
+            }
+          });
+          await faceMesh.initialize();
+          models.facemesh = faceMesh;
+        }
+      } catch (err) {
+        console.error(`Failed to load ${type} model:`, err);
+        showErrorMessage(`[${MODEL_NAMES[type]}] 초기화 오류: ${err.message || '인터넷 연결을 확인하세요.'}`);
+      } finally {
+        showLoading(false);
+      }
+      return models[type];
+    }
+
+    function showLoading(show, text = '불러오는 중...') {
+      if (show) {
+        loadingMsg.textContent = text;
+        loadingOverlay.classList.remove('hidden');
+      } else {
+        loadingOverlay.classList.add('hidden');
+      }
+    }
+
+    function showErrorMessage(msg) {
+      resultsContainer.innerHTML = `
+        <div class="flex items-center gap-2 text-rose-600 bg-rose-50 border border-rose-200 px-3 py-2 rounded-xl text-xs sm:text-sm font-medium w-full">
+          <i data-lucide="alert-circle" class="w-4 h-4 flex-shrink-0"></i>
+          <span>${msg}</span>
+        </div>
+      `;
+      lucide.createIcons();
+    }
+
+    async function setupCameraDevices() {
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videoDevices = devices.filter(d => d.kind === 'videoinput');
+        cameraSelect.innerHTML = '';
+        if (videoDevices.length === 0) {
+          cameraSelect.innerHTML = '<option value="">카메라를 찾을 수 없습니다</option>';
+          return;
+        }
+        videoDevices.forEach((device, idx) => {
+          const opt = document.createElement('option');
+          opt.value = device.deviceId;
+          opt.text = device.label || `카메라 ${idx + 1}`;
+          cameraSelect.appendChild(opt);
+        });
+      } catch (e) {
+        console.warn('Device enumeration failed:', e);
+      }
+    }
+
+    async function startCamera() {
+      const deviceId = cameraSelect.value;
+      const constraints = {
+        video: {
+          deviceId: deviceId ? { exact: deviceId } : undefined,
+          width: { ideal: 640 },
+          height: { ideal: 480 },
+          facingMode: 'user'
+        },
+        audio: false
+      };
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        webcam.srcObject = stream;
+        await new Promise(resolve => {
+          webcam.onloadedmetadata = () => {
+            webcam.play();
+            resolve();
+          };
+        });
+
+        // 캔버스 크기 맞춤
+        outputCanvas.width = webcam.videoWidth || 640;
+        outputCanvas.height = webcam.videoHeight || 480;
+
+        placeholderView.classList.add('hidden');
+        outputCanvas.classList.remove('hidden');
+
+        isWebcamRunning = true;
+        updateUIOnStateChange();
+
+        await loadModel(currentModelType);
+        runInferenceLoop();
+      } catch (err) {
+        console.error('Camera access error:', err);
+        showErrorMessage('카메라 접근 권한이 필요합니다. 브라우저 주소창에서 카메라 권한을 허용해 주세요.');
+        stopCamera();
+      }
+    }
+
+    function stopCamera() {
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
+        animationFrameId = null;
+      }
+      if (webcam.srcObject) {
+        webcam.srcObject.getTracks().forEach(track => track.stop());
+        webcam.srcObject = null;
+      }
+      isWebcamRunning = false;
+      latestFaceLandmarks = null;
+      latestSegmentationMask = null;
+      isFaceMeshProcessing = false;
+      isSegmenterProcessing = false;
+
+      placeholderView.classList.remove('hidden');
+      outputCanvas.classList.add('hidden');
+      updateUIOnStateChange();
+      resultsContainer.textContent = '카메라가 중지되었습니다.';
+    }
+
+    function updateUIOnStateChange() {
+      if (isWebcamRunning) {
+        btnText.textContent = '웹캠 및 AI 중지';
+        toggleCameraBtn.classList.replace('bg-indigo-600', 'bg-rose-600');
+        toggleCameraBtn.classList.replace('hover:bg-indigo-700', 'hover:bg-rose-700');
+        statusIndicatorDot.className = 'w-2 h-2 rounded-full bg-emerald-400 animate-pulse';
+        statusIndicatorText.textContent = '실시간 분석 중';
+      } else {
+        btnText.textContent = '웹캠 켜기 및 AI 시작';
+        toggleCameraBtn.classList.replace('bg-rose-600', 'bg-indigo-600');
+        toggleCameraBtn.classList.replace('hover:bg-rose-700', 'hover:bg-indigo-700');
+        statusIndicatorDot.className = 'w-2 h-2 rounded-full bg-slate-400';
+        statusIndicatorText.textContent = '대기 중';
+      }
+    }
+
+    async function runInferenceLoop() {
+      if (!isWebcamRunning) return;
+
+      if (webcam.readyState >= 2) {
+        try {
+          if (currentModelType === 'classifier') {
+            const model = models.classifier;
+            if (model) await handleImageClassification(model);
+          } else if (currentModelType === 'detector') {
+            const model = models.detector;
+            if (model) await handleObjectDetection(model);
+          } else if (currentModelType === 'segmenter') {
+            await handleSegmentation();
+          } else if (currentModelType === 'facemesh') {
+            await handleFaceMesh();
+          }
+        } catch (e) {
+          console.error('Inference loop tick error:', e);
+        }
+      }
+
+      animationFrameId = requestAnimationFrame(runInferenceLoop);
+    }
+
+    async function handleImageClassification(model) {
+      ctx.drawImage(webcam, 0, 0, outputCanvas.width, outputCanvas.height);
+      const predictions = await model.classify(webcam);
+
+      if (predictions && predictions.length > 0) {
+        let html = '<div class="w-full flex flex-col gap-2">';
+        predictions.slice(0, 3).forEach((pred) => {
+          const percent = Math.round(pred.probability * 100);
+          html += `
+            <div>
+              <div class="flex justify-between text-xs font-semibold text-slate-700 mb-1">
+                <span>${pred.className}</span>
+                <span class="text-indigo-600 font-mono">${percent}%</span>
+              </div>
+              <div class="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+                <div class="bg-indigo-600 h-2 rounded-full transition-all duration-300" style="width: ${percent}%"></div>
+              </div>
+            </div>
+          `;
+        });
+        html += '</div>';
+        resultsContainer.innerHTML = html;
+      }
+    }
+
+    async function handleObjectDetection(model) {
+      ctx.drawImage(webcam, 0, 0, outputCanvas.width, outputCanvas.height);
+      const predictions = await model.detect(webcam);
+
+      if (predictions && predictions.length > 0) {
+        predictions.forEach(pred => {
+          const [x, y, width, height] = pred.bbox;
+          
+          // 바운딩 박스 그리기
+          ctx.strokeStyle = '#6366f1';
+          ctx.lineWidth = 3;
+          ctx.strokeRect(x, y, width, height);
+
+          // 텍스트 라벨 배경 및 텍스트
+          const score = Math.round(pred.score * 100);
+          const label = `${pred.class} (${score}%)`;
+          ctx.font = 'bold 13px sans-serif';
+          const textWidth = ctx.measureText(label).width;
+
+          ctx.fillStyle = '#4f46e5';
+          ctx.fillRect(x, Math.max(0, y - 24), textWidth + 12, 24);
+
+          ctx.fillStyle = '#ffffff';
+          ctx.fillText(label, x + 6, Math.max(16, y - 7));
+        });
+
+        const summary = predictions.map(p => 
+          `<span class="inline-flex items-center gap-1.5 px-3 py-1 bg-slate-100 border border-slate-200 text-slate-800 rounded-lg text-xs font-medium">
+            <span class="w-2 h-2 rounded-full bg-indigo-500"></span>${p.class} <strong class="text-indigo-600">${Math.round(p.score * 100)}%</strong>
+          </span>`
+        ).join(' ');
+        resultsContainer.innerHTML = `<div class="flex flex-wrap gap-2 w-full">${summary}</div>`;
+      } else {
+        resultsContainer.innerHTML = `<span class="text-slate-400">화면에서 사물을 탐지하는 중입니다...</span>`;
+      }
+    }
+
+    async function handleSegmentation() {
+      const segmenter = models.segmenter;
+      if (!segmenter) return;
+
+      // 1. 비동기 프레임 전달
+      if (!isSegmenterProcessing && webcam.readyState >= 2) {
+        isSegmenterProcessing = true;
+        segmenter.send({ image: webcam })
+          .catch(e => console.warn('Segmentation send error:', e))
+          .finally(() => {
+            isSegmenterProcessing = false;
+          });
+      }
+
+      const w = outputCanvas.width;
+      const h = outputCanvas.height;
+
+      if (latestSegmentationMask) {
+        ctx.save();
+        ctx.clearRect(0, 0, w, h);
+
+        // 1단계: 세그멘테이션 마스크 그리기
+        ctx.drawImage(latestSegmentationMask, 0, 0, w, h);
+
+        // 2단계: 마스크 영역(사람) 안에만 웹캠 원본 영상 채우기
+        ctx.globalCompositeOperation = 'source-in';
+        ctx.drawImage(webcam, 0, 0, w, h);
+
+        // 3단계: 사람 뒷배경 채우기 (세련된 인디고 그라데이션 가상 배경)
+        ctx.globalCompositeOperation = 'destination-over';
+        const grad = ctx.createLinearGradient(0, 0, w, h);
+        grad.addColorStop(0, '#1e1b4b');   // 딥 인디고
+        grad.addColorStop(0.5, '#312e81'); // 바이올렛
+        grad.addColorStop(1, '#0f172a');   // 다크 슬레이트
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, w, h);
+
+        // 가상 스튜디오 도트 패턴
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
+        for (let gx = 15; gx < w; gx += 30) {
+          for (let gy = 15; gy < h; gy += 30) {
+            ctx.beginPath();
+            ctx.arc(gx, gy, 1.5, 0, 2 * Math.PI);
+            ctx.fill();
+          }
+        }
+
+        ctx.restore();
+
+        resultsContainer.innerHTML = `
+          <div class="flex items-center justify-between w-full">
+            <div class="flex items-center gap-2">
+              <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+              <span class="text-slate-800 font-semibold text-sm">실시간 인물 분할 (AI 배경 분리) 적용 중</span>
+            </div>
+            <span class="text-xs font-mono text-indigo-700 bg-indigo-50 border border-indigo-200 px-2.5 py-1 rounded-lg">초고속 GPU 가속 활성화</span>
+          </div>
+        `;
+      } else {
+        // 마스크 첫 수신 전 비디오 프레임 임시 표시
+        ctx.drawImage(webcam, 0, 0, w, h);
+        resultsContainer.innerHTML = `
+          <div class="flex items-center gap-2 text-slate-500 text-sm">
+            <div class="w-3 h-3 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
+            <span>인물 배경을 분리하는 중입니다...</span>
+          </div>
+        `;
+      }
+    }
+
+    async function handleFaceMesh() {
+      const faceMesh = models.facemesh;
+      if (!faceMesh) return;
+
+      // 1. 기본 웹캠 비디오 프레임 그리기
+      ctx.drawImage(webcam, 0, 0, outputCanvas.width, outputCanvas.height);
+
+      // 2. 비동기 프레임 전달
+      if (!isFaceMeshProcessing && webcam.readyState >= 2) {
+        isFaceMeshProcessing = true;
+        faceMesh.send({ image: webcam })
+          .catch(e => console.warn('FaceMesh send error:', e))
+          .finally(() => {
+            isFaceMeshProcessing = false;
+          });
+      }
+
+      // 3. 468개 특징점 캔버스 오버레이 렌더링
+      if (latestFaceLandmarks && latestFaceLandmarks.length > 0) {
+        const w = outputCanvas.width;
+        const h = outputCanvas.height;
+
+        latestFaceLandmarks.forEach(facePoints => {
+          // 468개 메쉬 포인트 렌더링
+          ctx.fillStyle = '#38bdf8'; // 사이언(Cyan) 점
+          const len = facePoints.length;
+          for (let i = 0; i < len; i++) {
+            const pt = facePoints[i];
+            const px = pt.x * w;
+            const py = pt.y * h;
+            ctx.beginPath();
+            ctx.arc(px, py, 1.2, 0, 2 * Math.PI);
+            ctx.fill();
+          }
+
+          // 주요 특징 포인트 강조 (코끝, 입술, 양쪽 눈)
+          const keyHighlights = [
+            { idx: 1, color: '#f43f5e', r: 3.5 }, // 코끝
+            { idx: 13, color: '#ec4899', r: 3.0 }, // 윗입술
+            { idx: 14, color: '#ec4899', r: 3.0 }, // 아랫입술
+            { idx: 159, color: '#6366f1', r: 3.0 }, // 왼쪽 눈
+            { idx: 386, color: '#6366f1', r: 3.0 }  // 오른쪽 눈
+          ];
+
+          keyHighlights.forEach(({ idx, color, r }) => {
+            const pt = facePoints[idx];
+            if (pt) {
+              ctx.fillStyle = color;
+              ctx.beginPath();
+              ctx.arc(pt.x * w, pt.y * h, r, 0, 2 * Math.PI);
+              ctx.fill();
+            }
+          });
+        });
+
+        resultsContainer.innerHTML = `
+          <div class="flex items-center justify-between w-full">
+            <div class="flex items-center gap-2">
+              <span class="w-2.5 h-2.5 rounded-full bg-cyan-500 animate-ping"></span>
+              <span class="text-slate-800 font-semibold text-sm">얼굴 ${latestFaceLandmarks.length}명 감지됨 (FaceMesh 468 Keypoints)</span>
+            </div>
+            <span class="text-xs font-mono text-cyan-700 bg-cyan-50 border border-cyan-200 px-2.5 py-1 rounded-lg">실시간 랜드마크 추적 중</span>
+          </div>
+        `;
+      } else {
+        resultsContainer.innerHTML = `
+          <div class="flex items-center gap-2 text-slate-500 text-sm">
+            <div class="w-3 h-3 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin"></div>
+            <span>화면에서 얼굴을 찾는 중입니다...</span>
+          </div>
+        `;
+      }
+    }
+
+    modelBtns.forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const modelType = btn.dataset.model;
+        if (modelType === currentModelType) return;
+
+        // 버튼 활성화 스타일 업데이트
+        modelBtns.forEach(b => {
+          b.classList.remove('active', 'border-2', 'border-indigo-600', 'bg-indigo-50/50');
+          b.classList.add('border', 'border-slate-200');
+          const title = b.querySelector('.font-bold');
+          const sub = b.querySelector('.text-xs');
+          if (title) title.className = 'font-bold text-sm text-slate-800';
+          if (sub) sub.className = 'text-xs text-slate-500 mt-0.5';
+        });
+
+        btn.classList.add('active', 'border-2', 'border-indigo-600', 'bg-indigo-50/50');
+        btn.classList.remove('border-slate-200');
+        const activeTitle = btn.querySelector('.font-bold');
+        const activeSub = btn.querySelector('.text-xs');
+        if (activeTitle) activeTitle.className = 'font-bold text-sm text-indigo-950';
+        if (activeSub) activeSub.className = 'text-xs text-indigo-600/90 mt-0.5';
+
+        currentModelType = modelType;
+        currentModelBadge.textContent = MODEL_NAMES[modelType];
+        latestFaceLandmarks = null;
+        latestSegmentationMask = null;
+
+        if (isWebcamRunning) {
+          await loadModel(currentModelType);
+        }
+      });
+    });
+
+    // 카메라 시작/정지 토글
+    toggleCameraBtn.addEventListener('click', () => {
+      if (isWebcamRunning) {
+        stopCamera();
+      } else {
+        startCamera();
+      }
+    });
+
+    // 거울 모드 토글
+    mirrorToggle.addEventListener('change', (e) => {
+      isMirror = e.target.checked;
+      if (isMirror) {
+        outputCanvas.classList.add('mirror-flip');
+        webcam.classList.add('mirror-flip');
+      } else {
+        outputCanvas.classList.remove('mirror-flip');
+        webcam.classList.remove('mirror-flip');
+      }
+    });
+
+    // 카메라 장치 변경
+    cameraSelect.addEventListener('change', () => {
+      if (isWebcamRunning) {
+        startCamera();
+      }
+    });
+
+    // 초기화
+    window.addEventListener('DOMContentLoaded', async () => {
+      lucide.createIcons();
+      await setupCameraDevices();
+    });
+  </script>
+</body>
+</html>
